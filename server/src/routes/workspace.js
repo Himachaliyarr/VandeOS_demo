@@ -491,5 +491,21 @@ router.get('/reports/overview', staff, async (req, res) => {
   res.json({ success: true, data: { counts: data, overdue, generatedAt: new Date().toISOString() } });
 });
 
+router.get('/:module/:id', async (req, res) => {
+  const { module } = req.params;
+  const config = modules[module];
+  if (!config) return res.status(404).json({ success: false, message: 'Workspace module not found.' });
+  if (!canAccessModule(req, module, config)) return res.status(403).json({ success: false, message: 'Your account does not have access to this work area.' });
+  const record = await WorkspaceRecord.findOne({ _id: req.params.id, module, archivedAt: null, ...recordScope(req, module) })
+    .populate('createdBy', 'name')
+    .populate('assignedTo', 'name employeeId')
+    .populate('parent', 'title kind')
+    .populate('client', 'title kind')
+    .populate('student', 'title kind')
+    .lean();
+  if (!record) return res.status(404).json({ success: false, message: 'Record not found.' });
+  res.json({ success: true, data: { record } });
+});
+
 export default router;
 export { modules as workspaceModules, recordScope as workspaceRecordScope, canWrite as canWriteWorkspaceRecord, canAccessModule as canAccessWorkspaceModule };

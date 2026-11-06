@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import app from '../src/app.js';
 import User from '../src/models/User.js';
 import AuditLog from '../src/models/AuditLog.js';
+import WorkspaceRecord from '../src/models/WorkspaceRecord.js';
 
 let server;
 let baseUrl;
@@ -24,6 +25,18 @@ test('health endpoint returns API status', async () => {
   assert.equal(response.status, 200);
   assert.equal(body.status, 'ok');
 });
+
+if (process.env.NODE_ENV !== 'production') {
+  test('root endpoint lists available API routes', async () => {
+    const response = await fetch(baseUrl);
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.success, true);
+    assert.equal(body.service, 'vande-os-api');
+    assert.ok(body.endpoints.includes('GET /api/health'));
+    assert.ok(body.endpoints.includes('POST /api/workspace/:module'));
+  });
+}
 
 if (process.env.NODE_ENV === 'production') {
   test('production server serves the built app and SPA routes', async () => {
@@ -152,6 +165,44 @@ test('employee and HR sessions cannot open unassigned work areas', async () => {
     }
   } finally {
     User.findById = originalFindById;
+    if (previousSecret === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = previousSecret;
+  }
+});
+
+test('workspace GET detail returns only an accessible active record', async () => {
+  const previousSecret = process.env.JWT_SECRET;
+  const originalFindById = User.findById;
+  const originalFindOne = WorkspaceRecord.findOne;
+  process.env.JWT_SECRET = 'test-secret-with-at-least-32-characters';
+  const record = { _id: 'project-1', module: 'projects', title: 'Project one' };
+  User.findById = () => ({ populate: async () => ({
+    _id: 'employee-1',
+    role: 'EMPLOYEE',
+    active: true,
+    workspacePermissions: ['projects']
+  }) });
+  WorkspaceRecord.findOne = filter => {
+    assert.equal(filter.module, 'projects');
+    assert.equal(filter._id, 'project-1');
+    assert.equal(filter.archivedAt, null);
+    assert.ok(filter.$or.some(scope => scope.assignedTo === 'employee-1'));
+    return {
+      populate() { return this; },
+      lean: async () => record
+    };
+  };
+  const token = jwt.sign({ sub: 'employee-1' }, process.env.JWT_SECRET, { expiresIn: '1m' });
+  try {
+    const response = await fetch(`${baseUrl}/api/workspace/projects/project-1`, {
+      headers: { Cookie: `vande_session=${token}` }
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.deepEqual(body.data.record, record);
+  } finally {
+    User.findById = originalFindById;
+    WorkspaceRecord.findOne = originalFindOne;
     if (previousSecret === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = previousSecret;
   }

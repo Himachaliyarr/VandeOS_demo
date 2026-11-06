@@ -13,6 +13,53 @@ import workspaceRouter from './routes/workspace.js';
 
 const app = express();
 const clientDist = resolve(fileURLToPath(new URL('../../client/dist', import.meta.url)));
+const apiEndpoints = [
+  'GET /api/health',
+  'POST /api/auth/login',
+  'POST /api/auth/logout',
+  'GET /api/auth/me',
+  'POST /api/auth/change-password',
+  'GET /api/organization',
+  'PATCH /api/organization/settings',
+  'GET /api/divisions',
+  'POST /api/divisions',
+  'PATCH /api/divisions/:id',
+  'GET /api/departments',
+  'POST /api/departments',
+  'PATCH /api/departments/:id',
+  'GET /api/employees/me',
+  'GET /api/employees',
+  'POST /api/employees',
+  'PATCH /api/employees/:id',
+  'POST /api/employees/:id/deactivate',
+  'GET /api/shifts',
+  'POST /api/shifts',
+  'PATCH /api/shifts/:id',
+  'GET /api/attendance/me',
+  'GET /api/attendance',
+  'POST /api/attendance/check-in',
+  'POST /api/attendance/check-out',
+  'GET /api/leave-requests/me',
+  'GET /api/leave-requests',
+  'POST /api/leave-requests',
+  'POST /api/leave-requests/:id/review',
+  'POST /api/leave-requests/:id/cancel',
+  'GET /api/dashboard',
+  'GET /api/notifications',
+  'PATCH /api/notifications/read-all',
+  'PATCH /api/notifications/:id/read',
+  'GET /api/audit-logs',
+  'GET /api/workspace/meta',
+  'GET /api/workspace/reports/overview',
+  'GET /api/workspace/:module',
+  'POST /api/workspace/:module',
+  'POST /api/workspace/finance/:id/payments',
+  'POST /api/workspace/inventory/:id/movements',
+  'POST /api/workspace/academy/:id/review',
+  'PATCH /api/workspace/:module/:id',
+  'POST /api/workspace/:module/:id/archive',
+  'GET /api/workspace/:module/:id'
+];
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(helmet());
@@ -30,6 +77,11 @@ if (process.env.NODE_ENV === 'production' && existsSync(resolve(clientDist, 'ind
     return res.sendFile(resolve(clientDist, 'index.html'));
   });
 }
+app.get('/', (_req, res) => res.json({
+  success: true,
+  service: 'vande-os-api',
+  endpoints: apiEndpoints
+}));
 app.use(notFound);
 app.use(errorHandler);
 
