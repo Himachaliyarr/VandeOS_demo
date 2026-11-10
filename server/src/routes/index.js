@@ -36,7 +36,8 @@ function validate(schema, value) {
 }
 
 function sessionCookieOptions() {
-  const crossSite = process.env.NODE_ENV === 'production';
+  const crossSite = process.env.NODE_ENV === 'production'
+    || process.env.CLIENT_URL?.startsWith('https://');
   return {
     httpOnly: true,
     secure: crossSite || process.env.COOKIE_SECURE === 'true',

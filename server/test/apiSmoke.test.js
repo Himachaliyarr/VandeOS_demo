@@ -271,10 +271,12 @@ test('CRM CSV import creates validated records and export returns CSV', async ()
 
 test('employee accounts can sign in and receive a session', async () => {
   const previousSecret = process.env.JWT_SECRET;
+  const previousClientUrl = process.env.CLIENT_URL;
   const originalFindOne = User.findOne;
   const originalFindById = User.findById;
   const originalAuditCreate = AuditLog.create;
   process.env.JWT_SECRET = 'test-secret-with-at-least-32-characters';
+  process.env.CLIENT_URL = 'https://vandeos-demo-2.onrender.com';
   const employee = {
     _id: 'employee-1',
     id: 'employee-1',
@@ -301,13 +303,17 @@ test('employee accounts can sign in and receive a session', async () => {
     assert.deepEqual(body.data.organization, { name: 'Vande Digital', slug: 'vande-digital' });
     const cookie = response.headers.get('set-cookie').split(';')[0];
     assert.equal(jwt.decode(cookie.slice('vande_session='.length)).tenantSlug, 'vande-digital');
-    assert.match(response.headers.get('set-cookie') || '', /vande_session=/);
+    assert.match(response.headers.get('set-cookie') || '', /vande_session=.*; Path=\/; Expires=/);
+    assert.match(response.headers.get('set-cookie') || '', /Secure/);
+    assert.match(response.headers.get('set-cookie') || '', /SameSite=None/);
   } finally {
     User.findOne = originalFindOne;
     User.findById = originalFindById;
     AuditLog.create = originalAuditCreate;
     if (previousSecret === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = previousSecret;
+    if (previousClientUrl === undefined) delete process.env.CLIENT_URL;
+    else process.env.CLIENT_URL = previousClientUrl;
   }
 });
 
