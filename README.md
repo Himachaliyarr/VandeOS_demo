@@ -1,6 +1,6 @@
 # Vande OS — Phase 1
 
-Vande OS is a MERN workspace for Vande Digital and Vande Digital Academy. It includes a React + Vite web app, an Express API, and MongoDB models for the HR foundation and the CRM, delivery, Academy, finance, marketing, inventory, support, automation, and reporting workflows.
+Vande OS is a multi-tenant MERN workspace for organizations. It includes a React + Vite web app, an Express API, and MongoDB models for HR and business workflows. Each organization uses its own MongoDB database within the configured cluster.
 
 ## Confirmed company configuration
 
@@ -16,7 +16,7 @@ Vande OS is a MERN workspace for Vande Digital and Vande Digital Academy. It inc
 ## Phase 1 features
 
 - Owner and employee sign-in with an HTTP-only session cookie, password hashing, login throttling, and forced password change for initial accounts.
-- Server-side role checks for Super Admin, HR, and Employee access. Public account registration is disabled.
+- Server-side role checks for Super Admin, HR, and Employee access. Organization signup requires a verified ₹500 Razorpay joining-fee payment.
 - Employee directory, account creation, division and department assignment, shift assignment, remote-work approval, HR role assignment by the Owner, and account deactivation.
 - Flexible shift configuration with workdays and a configurable flexible window.
 - Office GPS check-in and check-out, approved remote web check-in, monthly attendance history, and staff attendance report.
@@ -44,6 +44,36 @@ These modules use a shared `WorkspaceRecord` collection with a validated module,
 
 Operational controls prevent important records from being edited as plain text: invoice payments are recorded against an invoice and update its outstanding balance; stock changes require a receive/issue movement and cannot reduce stock below zero; payment and stock history is stored immutably with its invoice/item as one atomic database update; only pending student submissions can be reviewed, and each learner can submit once per assignment. These actions create audit entries and the relevant staff/student notifications.
 
+### CRM configuration and integrations
+
+CRM administrators can configure record types and pipelines, typed custom fields, currency, date format, lead scoring, and role permissions. The CRM provides table, Kanban, and follow-up calendar layouts; filters can be saved as private or team-shared views. Staff CRM records are scoped to assigned records, while administrators can access the full workspace. Stage-change rules create assigned follow-up activities; due follow-ups can send in-app notifications and optional email from reusable templates.
+
+Each lead, client, contact, and deal has a timeline for logging calls, emails, meetings, notes, and follow-up tasks. Tasks can have due dates and are included in overdue follow-up reporting. CRM reports summarize leads, deal stages, lead sources, won revenue, win rate, and owner performance; report data respects the signed-in user's CRM record scope.
+
+CSV import and export are available from the CRM. Salesforce is optional and can be connected by the Owner from **CRM settings**. To enable it, set these values in the root `.env` before connecting:
+
+```dotenv
+SF_CLIENT_ID=your-connected-app-client-id
+SF_CLIENT_SECRET=your-connected-app-client-secret
+SF_REDIRECT_URI=http://localhost:5000/api/workspace/crm/salesforce/callback
+CRM_TOKEN_ENCRYPTION_KEY=replace-with-a-random-secret-of-at-least-32-characters
+```
+
+Register the exact `SF_REDIRECT_URI` as a callback URL in the Salesforce Connected App. Optional settings are `SF_LOGIN_URL` (defaults to `https://login.salesforce.com`) and `SF_API_VERSION` (defaults to `v66.0`). Salesforce sync runs every five minutes and can also be started manually. The initial sync looks back one year; subsequent runs use the previous successful sync time. Supported mappings are Salesforce Lead, Account, Contact, Opportunity, and Task to CRM lead, client, contact, deal, and activity records. Conflicting edits are kept in a review queue rather than overwritten automatically.
+
+Email delivery is optional. Configure SMTP only if CRM email templates should send messages:
+
+```dotenv
+SMTP_HOST=your-smtp-host
+SMTP_PORT=587
+SMTP_USER=your-smtp-username
+SMTP_PASSWORD=your-smtp-password
+SMTP_FROM=Vande OS <crm@yourcompany.com>
+SMTP_SECURE=false
+```
+
+Use `SMTP_SECURE=true` for SMTP providers that require implicit TLS (typically port 465). Keep integration credentials in the local environment or secret manager; never commit them.
+
 ## Requirements
 
 - Node.js 20.19 or newer (Node 22 LTS or newer is recommended).
@@ -68,6 +98,15 @@ OWNER_EMAIL=you@yourcompany.com
 OWNER_PASSWORD=use-a-long-unique-password
 ```
 
+To enable public organization signup, configure Razorpay API credentials from the merchant account that should receive the joining-fee payments:
+
+```dotenv
+RAZORPAY_KEY_ID=your-razorpay-key-id
+RAZORPAY_KEY_SECRET=your-razorpay-key-secret
+```
+
+The joining fee is ₹500. In the Razorpay Dashboard, complete merchant KYC, add and verify the settlement bank account, and ensure UPI is enabled under **Account & Settings → Payment Methods**. Standard Checkout offers the payment methods enabled for that merchant account, including supported UPI apps such as Google Pay. Captured payments settle to the merchant account's approved bank account; putting a personal UPI ID in `.env` does not change the settlement destination. Use the matching test keys while testing and live keys only after the merchant account is activated. Keep the secret in the local environment or secret manager; never commit it.
+
 You can generate a random JWT secret with:
 
 ```powershell
@@ -85,7 +124,13 @@ npm run dev
 
 Open **http://localhost:5173**. The API runs at **http://localhost:5000**.
 
-On the first API startup, Vande OS creates the base organization, the two divisions, starter departments, and one flexible core shift. It creates the Owner account only if there are no users and both `OWNER_EMAIL` and `OWNER_PASSWORD` are set. The Owner must choose a new password at first sign-in. Later startups do not replace or reset accounts.
+On the first API startup, Vande OS registers the existing MongoDB database as the `vande-digital` tenant, preserving its existing data, then ensures the base organization, divisions, starter departments, and flexible core shift. It creates the Owner account only if there are no users and both `OWNER_EMAIL` and `OWNER_PASSWORD` are set. The Owner must choose a new password at first sign-in. Later startups do not replace or reset accounts.
+
+### Organization signup and tenant databases
+
+Organizations can register at `/signup`. The server creates an isolated database for the organization, provisions its first Owner, and keeps sign-in disabled until Razorpay confirms and captures the ₹500 joining fee. Sign in with the organization address (the slug chosen at signup), email, and password. Configure `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` to accept payments; without them, paid signup returns a configuration error.
+
+The database named in `MONGODB_URI` holds the tenant registry and remains the existing Vande Digital tenant database so existing data is not moved or reset. Each newly registered organization gets a separate `vandeos_<organization-slug>` database on the same MongoDB cluster. Back up the MongoDB deployment before enabling public signup.
 
 ### Configure the real office location
 
@@ -148,7 +193,7 @@ All API routes are under `/api`. Success responses use `{ success: true, data }`
 
 | Area | Routes |
 | --- | --- |
-| Session | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/change-password` |
+| Session / signup | `POST /tenants/signup`, `POST /tenants/verify-payment`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/change-password` |
 | Organization | `GET /organization`, `PATCH /organization/settings` |
 | Divisions / departments | `GET /divisions`, `POST /divisions`, `PATCH /divisions/:id`, `GET /departments`, `POST /departments`, `PATCH /departments/:id` |
 | People | `GET /employees`, `GET /employees/me`, `POST /employees`, `PATCH /employees/:id`, `POST /employees/:id/deactivate` |

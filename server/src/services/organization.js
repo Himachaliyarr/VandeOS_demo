@@ -3,23 +3,29 @@ import Division from '../models/Division.js';
 import Department from '../models/Department.js';
 import Shift from '../models/Shift.js';
 
-export async function ensureFoundation() {
+export async function ensureFoundation({ name = 'Vande Digital', useEnvironment = true } = {}) {
   let organization = await Organization.findOne();
   if (!organization) organization = await Organization.create({
-    name: 'Vande Digital',
-    timezone: process.env.TIMEZONE || 'Asia/Kolkata',
+    name,
+    timezone: useEnvironment ? process.env.TIMEZONE || 'Asia/Kolkata' : 'Asia/Kolkata',
     settings: {
-      officeName: process.env.OFFICE_NAME || 'Vande Digital Office',
-      officeLatitude: process.env.OFFICE_LATITUDE ? Number(process.env.OFFICE_LATITUDE) : null,
-      officeLongitude: process.env.OFFICE_LONGITUDE ? Number(process.env.OFFICE_LONGITUDE) : null,
-      geofenceRadiusMeters: Number(process.env.GEOFENCE_RADIUS_METERS || 150),
-      gpsMaxAccuracyMeters: Number(process.env.GPS_MAX_ACCURACY_METERS || 100)
+      officeName: useEnvironment && process.env.OFFICE_NAME || `${name} Office`,
+      officeLatitude: useEnvironment && process.env.OFFICE_LATITUDE ? Number(process.env.OFFICE_LATITUDE) : null,
+      officeLongitude: useEnvironment && process.env.OFFICE_LONGITUDE ? Number(process.env.OFFICE_LONGITUDE) : null,
+      geofenceRadiusMeters: useEnvironment ? Number(process.env.GEOFENCE_RADIUS_METERS || 150) : 150,
+      gpsMaxAccuracyMeters: useEnvironment ? Number(process.env.GPS_MAX_ACCURACY_METERS || 100) : 100
     }
   });
-  const divisionDefaults = [
-    { name: 'Vande Digital', slug: 'vande-digital' },
-    { name: 'Vande Digital Academy', slug: 'vande-digital-academy' }
-  ];
+  const organizationSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'organization';
+  const divisionDefaults = name === 'Vande Digital'
+    ? [
+      { name: 'Vande Digital', slug: 'vande-digital' },
+      { name: 'Vande Digital Academy', slug: 'vande-digital-academy' }
+    ]
+    : [
+      { name, slug: organizationSlug },
+      { name: `${name} Academy`, slug: `${organizationSlug}-academy` }
+    ];
   const divisions = {};
   for (const item of divisionDefaults) {
     divisions[item.slug] = await Division.findOneAndUpdate(
@@ -29,11 +35,11 @@ export async function ensureFoundation() {
     );
   }
   const departmentDefaults = [
-    ['Web Development', 'web-development', 'vande-digital'],
-    ['Digital Marketing', 'digital-marketing', 'vande-digital'],
-    ['Graphic Designing', 'graphic-designing', 'vande-digital'],
-    ['Video Editing', 'video-editing', 'vande-digital'],
-    ['Training', 'training', 'vande-digital-academy']
+    ['Web Development', 'web-development', divisionDefaults[0].slug],
+    ['Digital Marketing', 'digital-marketing', divisionDefaults[0].slug],
+    ['Graphic Designing', 'graphic-designing', divisionDefaults[0].slug],
+    ['Video Editing', 'video-editing', divisionDefaults[0].slug],
+    ['Training', 'training', divisionDefaults[1].slug]
   ];
   for (const [name, slug, division] of departmentDefaults) {
     await Department.findOneAndUpdate(

@@ -9,5 +9,8 @@ export function errorHandler(error, req, res, _next) {
     return res.status(400).json({ success: false, message: error.message });
   }
   const status = error.status || 500;
-  res.status(status).json({ success: false, message: status === 500 ? 'Something went wrong. Please try again.' : error.message });
+  const message = status === 500 && process.env.NODE_ENV === 'production'
+    ? 'Something went wrong. Please try again.'
+    : error.message;
+  res.status(status).json({ success: false, message });
 }

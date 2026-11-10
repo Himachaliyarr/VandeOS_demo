@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantModel } from '../services/tenantContext.js';
 
 const departmentSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
@@ -8,4 +9,4 @@ const departmentSchema = new mongoose.Schema({
   active: { type: Boolean, default: true }
 }, { timestamps: true });
 departmentSchema.index({ division: 1, slug: 1 }, { unique: true });
-export default mongoose.model('Department', departmentSchema);
+export default tenantModel('Department', departmentSchema);

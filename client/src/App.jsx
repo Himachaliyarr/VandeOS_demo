@@ -7,6 +7,7 @@ import { ErrorBanner, Loading, SuccessBanner } from './components/Primitives.jsx
 import { api } from './lib/api.js';
 import { canAccessWorkspaceModule } from './lib/access.js';
 import Login from './pages/Login.jsx';
+import Signup from './pages/Signup.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Employees from './pages/Employees.jsx';
 import Attendance from './pages/Attendance.jsx';
@@ -70,9 +71,9 @@ function ModuleOnly({ module, children }) {
   return canAccessWorkspaceModule(user, module) ? children : <Navigate to="/" replace />;
 }
 
-function LoginRoute() {
+function LoginRoute({ children = <Login /> }) {
   const { user, loading } = useAuth();
-  return loading ? <Loading /> : user ? <Navigate to="/" replace /> : <Login />;
+  return loading ? <Loading /> : user ? <Navigate to="/" replace /> : children;
 }
 
 function NotFound() { const navigate = useNavigate(); return <div className="not-found"><span className="not-found-mark">404</span><h1>That page isn’t here.</h1><p>The link may have changed or the page may be unavailable.</p><button className="button button-primary" onClick={() => navigate('/')}>Back to overview</button></div>; }
@@ -80,6 +81,7 @@ function NotFound() { const navigate = useNavigate(); return <div className="not
 export default function App() {
   return <Routes>
     <Route path="/login" element={<LoginRoute />} />
+    <Route path="/signup" element={<LoginRoute><Signup /></LoginRoute>} />
     <Route path="/" element={<Protected><Layout /></Protected>}>
       <Route index element={<HomeRoute />} />
       <Route path="employees" element={<StaffOnly><Employees /></StaffOnly>} />

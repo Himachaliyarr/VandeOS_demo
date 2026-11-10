@@ -1,0 +1,342 @@
+.theme-toggle {
+  width: 34px;
+  height: 34px;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.theme-toggle:hover {
+  color: var(--text);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  color: #26332e;
+  background: #f4f7f5;
+  --bg: #f4f7f5;
+  --panel: #ffffff;
+  --panel-2: #f7faf8;
+  --panel-hover: #edf3ef;
+  --border: #dce5df;
+  --border-soft: #e7ede9;
+  --text: #26332e;
+  --muted: #64736b;
+  --dim: #829087;
+  --mint: #378e6a;
+  --mint-strong: #287c5b;
+  --amber: #a77a24;
+  --red: #bd5555;
+  --blue: #477eae;
+  --purple: #7960aa;
+}
+
+html[data-theme='light'] body {
+  background: var(--bg);
+}
+
+html[data-theme='light'] .sidebar {
+  background: #ffffff;
+  border-color: #e0e8e3;
+}
+
+html[data-theme='light'] .brand,
+html[data-theme='light'] .workspace-switch,
+html[data-theme='light'] .workspace-switch strong,
+html[data-theme='light'] .user-menu-copy strong,
+html[data-theme='light'] .nav-link,
+html[data-theme='light'] .icon-button:hover,
+html[data-theme='light'] .crumb strong,
+html[data-theme='light'] .panel-heading h2,
+html[data-theme='light'] .metric > strong,
+html[data-theme='light'] .cell-strong,
+html[data-theme='light'] .person-cell > div strong,
+html[data-theme='light'] .person-lines strong,
+html[data-theme='light'] .request-date strong,
+html[data-theme='light'] .request-info strong,
+html[data-theme='light'] .quick-action strong,
+html[data-theme='light'] .welcome-banner h2,
+html[data-theme='light'] .login-heading h2,
+html[data-theme='light'] .modal-header h2,
+html[data-theme='light'] .leave-summary-card > div strong,
+html[data-theme='light'] .shift-card-top strong,
+html[data-theme='light'] .settings-heading-icon {
+  color: #26332e;
+}
+
+html[data-theme='light'] .workspace-switch,
+html[data-theme='light'] .help-card,
+html[data-theme='light'] .panel,
+html[data-theme='light'] .metric,
+html[data-theme='light'] .quick-action,
+html[data-theme='light'] .employee-summary,
+html[data-theme='light'] .leave-summary-card,
+html[data-theme='light'] .division-card,
+html[data-theme='light'] .shift-card,
+html[data-theme='light'] .notification-row,
+html[data-theme='light'] .modal,
+html[data-theme='light'] .filter-select,
+html[data-theme='light'] .search-field,
+html[data-theme='light'] .pagination-row .icon-button {
+  background: #ffffff;
+  border-color: #dce5df;
+}
+
+html[data-theme='light'] .topbar {
+  background: #ffffffeb;
+  border-color: #e0e8e3;
+}
+
+html[data-theme='light'] .topbar-divider,
+html[data-theme='light'] .panel-heading,
+html[data-theme='light'] .panel-footer-link,
+html[data-theme='light'] .table-footer,
+html[data-theme='light'] .shift-card-bottom {
+  border-color: #e3eae6;
+}
+
+html[data-theme='light'] .page-header h1,
+html[data-theme='light'] .modal-header h2,
+html[data-theme='light'] .attendance-hero-copy h2,
+html[data-theme='light'] .welcome-banner h2 {
+  color: #26332e;
+}
+
+html[data-theme='light'] .page-description,
+html[data-theme='light'] .crumb,
+html[data-theme='light'] .footer,
+html[data-theme='light'] .panel-heading p,
+html[data-theme='light'] .metric > small,
+html[data-theme='light'] .person-cell > div small,
+html[data-theme='light'] .person-lines small,
+html[data-theme='light'] .table-footer,
+html[data-theme='light'] .muted,
+html[data-theme='light'] .request-info span,
+html[data-theme='light'] .quick-action small,
+html[data-theme='light'] .leave-summary-card > div span,
+html[data-theme='light'] .shift-card-top small,
+html[data-theme='light'] .shift-card-bottom {
+  color: #68766f;
+}
+
+html[data-theme='light'] .icon-button {
+  color: #64736b;
+}
+
+html[data-theme='light'] .icon-button:hover,
+html[data-theme='light'] .nav-link:hover {
+  background: #edf3ef;
+  border-color: #dce5df;
+}
+
+html[data-theme='light'] .nav-link.active {
+  color: #287c5b;
+  background: #e6f3eb;
+}
+
+html[data-theme='light'] .nav-link.active svg {
+  color: #287c5b;
+}
+
+html[data-theme='light'] .help-card {
+  color: #64736b;
+}
+
+html[data-theme='light'] .help-card strong,
+html[data-theme='light'] .help-card > div span {
+  color: #64736b;
+}
+
+html[data-theme='light'] .topbar-user,
+html[data-theme='light'] .live-status {
+  color: #64736b;
+}
+
+html[data-theme='light'] .topbar-user i {
+  box-shadow: 0 0 0 2px #ffffff;
+}
+
+html[data-theme='light'] .input-wrap input,
+html[data-theme='light'] .form-stack input,
+html[data-theme='light'] .form-stack select,
+html[data-theme='light'] .form-stack textarea,
+html[data-theme='light'] .settings-form input,
+html[data-theme='light'] .settings-form select,
+html[data-theme='light'] .settings-form textarea,
+html[data-theme='light'] .filter-select,
+html[data-theme='light'] .search-field input,
+html[data-theme='light'] .month-picker input {
+  color: #26332e;
+  background: #ffffff;
+  border-color: #cfdad3;
+  color-scheme: light;
+}
+
+html[data-theme='light'] .input-wrap input::placeholder,
+html[data-theme='light'] .form-stack input::placeholder,
+html[data-theme='light'] .inline-create input::placeholder,
+html[data-theme='light'] .search-field input::placeholder {
+  color: #8a9790;
+}
+
+html[data-theme='light'] thead,
+html[data-theme='light'] th {
+  color: #68766f;
+  background: #f7faf8;
+  border-color: #e3eae6;
+}
+
+html[data-theme='light'] td,
+html[data-theme='light'] tbody tr {
+  border-color: #e7ede9;
+}
+
+html[data-theme='light'] tbody tr:hover {
+  background: #f5f8f6;
+}
+
+html[data-theme='light'] .badge-neutral {
+  color: #59665f;
+  background: #e8eeea;
+}
+
+html[data-theme='light'] .crm-kanban-column,
+html[data-theme='light'] .crm-settings-section,
+html[data-theme='light'] .crm-timeline-form,
+html[data-theme='light'] .crm-timeline-list article,
+html[data-theme='light'] .crm-calendar-item,
+html[data-theme='light'] .crm-save-view input:not([type=checkbox]),
+html[data-theme='light'] .crm-month-filter input,
+html[data-theme='light'] .crm-config-field input,
+html[data-theme='light'] .crm-config-field select,
+html[data-theme='light'] .crm-config-field textarea,
+html[data-theme='light'] .crm-template input,
+html[data-theme='light'] .crm-template select,
+html[data-theme='light'] .crm-template textarea,
+html[data-theme='light'] .crm-timeline-fields input,
+html[data-theme='light'] .crm-timeline-fields select,
+html[data-theme='light'] .crm-timeline-fields textarea {
+  color: #26332e;
+  background: #ffffff;
+  border-color: #dce5df;
+}
+
+html[data-theme='light'] .crm-kanban-card {
+  color: #26332e;
+  background: #f7faf8;
+  border-color: #dce5df;
+}
+
+html[data-theme='light'] .crm-report-empty,
+html[data-theme='light'] .crm-timeline-fields label,
+html[data-theme='light'] .crm-timeline-list article p {
+  color: #64736b;
+}
+
+html[data-theme='light'] .crm-report-columns .module-report-card,
+html[data-theme='light'] .module-report-card {
+  color: #26332e;
+  background: linear-gradient(140deg, #ffffff, #f7faf8);
+  border-color: #dce5df;
+}
+
+html[data-theme='light'] .module-report-card > span,
+html[data-theme='light'] .module-report-card > small,
+html[data-theme='light'] .module-report-list > div {
+  color: #64736b;
+}
+
+html[data-theme='light'] .module-report-card > strong,
+html[data-theme='light'] .module-report-list strong,
+html[data-theme='light'] .crm-timeline-form > strong,
+html[data-theme='light'] .crm-timeline-list h3,
+html[data-theme='light'] .crm-timeline-list article strong {
+  color: #26332e;
+}
+
+html[data-theme='light'] .crm-timeline-type {
+  color: #287c5b;
+  background: #e6f3eb;
+}
+
+html[data-theme='light'] .badge-green {
+  color: #287c5b;
+  background: #e5f3e9;
+}
+
+html[data-theme='light'] .badge-red {
+  color: #a94747;
+  background: #fae9e7;
+}
+
+html[data-theme='light'] .badge-amber {
+  color: #8b671d;
+  background: #f7f0dc;
+}
+
+html[data-theme='light'] .badge-blue {
+  color: #3d6e99;
+  background: #e7f0f7;
+}
+
+html[data-theme='light'] .badge-purple {
+  color: #70589f;
+  background: #eee9f7;
+}
+
+html[data-theme='light'] .tip-card,
+html[data-theme='light'] .policy-card,
+html[data-theme='light'] .setup-notice,
+html[data-theme='light'] .audit-banner {
+  color: #44554b;
+  background: #edf5ef;
+  border-color: #d6e7da;
+}
+
+html[data-theme='light'] .tip-card p,
+html[data-theme='light'] .setup-notice p,
+html[data-theme='light'] .audit-banner p {
+  color: #586a60;
+}
+
+html[data-theme='light'] .modal-backdrop {
+  background: #26332e66;
+}
+
+html[data-theme='light'] .welcome-banner,
+html[data-theme='light'] .attendance-hero {
+  color: #26332e;
+  background: linear-gradient(120deg, #e5f3e9, #f3f7f4);
+  border-color: #d7e8dc;
+}
+
+html[data-theme='light'] .welcome-banner p:last-child,
+html[data-theme='light'] .attendance-hero-copy > p:not(.eyebrow) {
+  color: #586a60;
+}
+
+html[data-theme='light'] .avatar-mint,
+html[data-theme='light'] .topbar-avatar {
+  color: #287c5b;
+  background: #e3f2e8;
+  border-color: #b6d7c1;
+}
+
+html[data-theme='light'] .login-form-side {
+  color: #26332e;
+  background: #f4f7f5;
+}
+
+html[data-theme='light'] .login-heading h2 {
+  color: #26332e;
+}
+
+html[data-theme='light'] .login-heading > p:last-child,
+html[data-theme='light'] .login-security,
+html[data-theme='light'] .login-bottom,
+html[data-theme='light'] .signup-prompt {
+  color: #68766f;
+}
+
+html[data-theme='light'] .signup-prompt a {
+  color: #287c5b;
+}

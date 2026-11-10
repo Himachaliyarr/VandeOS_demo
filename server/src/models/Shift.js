@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantModel } from '../services/tenantContext.js';
 
 const shiftSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
@@ -9,4 +10,4 @@ const shiftSchema = new mongoose.Schema({
   active: { type: Boolean, default: true }
 }, { timestamps: true });
 
-export default mongoose.model('Shift', shiftSchema);
+export default tenantModel('Shift', shiftSchema);

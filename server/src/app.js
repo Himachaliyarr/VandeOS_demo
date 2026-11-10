@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import apiRouter from './routes/index.js';
 import { notFound, errorHandler } from './middleware/errors.js';
 import workspaceRouter from './routes/workspace.js';
+import tenantsRouter from './routes/tenants.js';
 
 const app = express();
 const clientDist = resolve(fileURLToPath(new URL('../../client/dist', import.meta.url)));
@@ -19,6 +20,8 @@ const apiEndpoints = [
   'POST /api/auth/logout',
   'GET /api/auth/me',
   'POST /api/auth/change-password',
+  'POST /api/tenants/signup',
+  'POST /api/tenants/verify-payment',
   'GET /api/organization',
   'PATCH /api/organization/settings',
   'GET /api/divisions',
@@ -50,6 +53,19 @@ const apiEndpoints = [
   'PATCH /api/notifications/:id/read',
   'GET /api/audit-logs',
   'GET /api/workspace/meta',
+  'GET /api/workspace/crm/config',
+  'PATCH /api/workspace/crm/config',
+  'GET /api/workspace/crm/views',
+  'POST /api/workspace/crm/views',
+  'DELETE /api/workspace/crm/views/:id',
+  'GET /api/workspace/crm/conflicts',
+  'PATCH /api/workspace/crm/conflicts/:id',
+  'POST /api/workspace/crm/salesforce/connect',
+  'GET /api/workspace/crm/salesforce/callback',
+  'POST /api/workspace/crm/salesforce/sync',
+  'DELETE /api/workspace/crm/salesforce/connect',
+  'GET /api/workspace/crm/export.csv',
+  'POST /api/workspace/crm/import.csv',
   'GET /api/workspace/reports/overview',
   'GET /api/workspace/:module',
   'POST /api/workspace/:module',
@@ -65,9 +81,13 @@ app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173', credentials: true }));
 app.use(express.json({ limit: '1mb' }));
+app.use(express.text({ type: 'text/csv', limit: '1mb' }));
 app.use(cookieParser());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use('/api/auth/login', rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false }));
+app.use('/api/tenants/signup', rateLimit({ windowMs: 60 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false }));
+app.use('/api/tenants/verify-payment', rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false }));
+app.use('/api/tenants', tenantsRouter);
 app.use('/api', apiRouter);
 app.use('/api/workspace', workspaceRouter);
 if (process.env.NODE_ENV === 'production' && existsSync(resolve(clientDist, 'index.html'))) {

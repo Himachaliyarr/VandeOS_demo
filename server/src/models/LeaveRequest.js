@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantModel } from '../services/tenantContext.js';
 
 const leaveRequestSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -12,4 +13,4 @@ const leaveRequestSchema = new mongoose.Schema({
   reviewerNote: { type: String, default: '' }
 }, { timestamps: true });
 leaveRequestSchema.index({ user: 1, startDate: 1 });
-export default mongoose.model('LeaveRequest', leaveRequestSchema);
+export default tenantModel('LeaveRequest', leaveRequestSchema);

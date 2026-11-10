@@ -8,6 +8,12 @@ import { audit } from '../services/audit.js';
 import { notify, notifyRole } from '../services/notifications.js';
 import { invoiceBalance, stockStatus } from '../services/workspacePolicy.js';
 import { canWriteWorkspaceModule, hasWorkspaceModuleAccess, reportAccess } from '../services/workspaceAccess.js';
+import { parseCrmCsv, serializeCrmCsv } from '../services/crmCsv.js';
+import CrmSavedView from '../models/CrmSavedView.js';
+import CrmSyncConflict from '../models/CrmSyncConflict.js';
+import { calculateLeadScore, crmConfigurationResponse, crmRolePermission, getCrmConfiguration, validateCrmFields } from '../services/crmConfiguration.js';
+import { runCrmStageAutomations } from '../services/crmAutomation.js';
+import { createSalesforceAuthorizationUrl, exchangeSalesforceCode, resolveCrmSalesforceConflict, syncCrmWithSalesforce } from '../services/crmSalesforce.js';
 
 const router = Router();
 const staff = allowRoles('SUPER_ADMIN', 'HR');
@@ -65,6 +71,16 @@ function validateInput(value, partial = false, schema = inputSchema) {
   return parsed.data;
 }
 
+function validateRequest(schema, value) {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    const error = new Error(parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '));
+    error.status = 400;
+    throw error;
+  }
+  return parsed.data;
+}
+
 function recordScope(req, module) {
   if (req.user.role === 'CLIENT') {
     if (!req.user.portalRecord) return { _id: null };
@@ -76,6 +92,7 @@ function recordScope(req, module) {
     return { $or: [{ _id: req.user.portalRecord }, { parent: req.user.portalRecord }, { student: req.user.portalRecord }] };
   }
   if (req.user.role === 'SUPER_ADMIN' || req.user.role === 'HR') return {};
+  if (module === 'crm') return { assignedTo: req.user._id };
   return { $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }] };
 }
 
@@ -85,6 +102,22 @@ function canAccessModule(req, module, config = modules[module]) {
 
 function canWrite(req, module, config = modules[module]) {
   return canWriteWorkspaceModule(req.user, module, config);
+}
+
+function canAccessCrm(req, configuration) {
+  return canAccessModule(req, 'crm', crmModuleConfiguration(configuration));
+}
+
+function crmModuleConfiguration(configuration) {
+  const stages = configuration.pipelines instanceof Map
+    ? Object.fromEntries(configuration.pipelines)
+    : configuration.pipelines || {};
+  return {
+    ...modules.crm,
+    kinds: configuration.recordTypes,
+    statuses: [...new Set(Object.values(stages).flat())],
+    pipelines: stages
+  };
 }
 
 function employeeInventoryAccess(req, res, next) {
@@ -112,7 +145,8 @@ function normalizeInput(input, module, config, existing) {
     throw error;
   }
   const status = input.status || existing?.status || config.statuses[0];
-  if (!config.statuses.includes(status)) {
+  const allowedStatuses = module === 'crm' ? config.pipelines?.[input.kind || existing?.kind] || [] : config.statuses;
+  if (!(module === 'crm' ? allowedStatuses : config.statuses).includes(status)) {
     const error = new Error('Choose a valid status for this record type.');
     error.status = 400;
     throw error;
@@ -176,6 +210,371 @@ router.get('/meta', (_req, res) => {
   res.json({ success: true, data: { modules: Object.fromEntries(Object.entries(modules).map(([key, config]) => [key, { kinds: config.kinds, statuses: config.statuses }])) } });
 });
 
+router.get('/crm/config', async (req, res) => {
+  if (!canAccessModule(req, 'crm')) return res.status(403).json({ success: false, message: 'Your account does not have CRM access.' });
+  const configuration = await getCrmConfiguration();
+  if (!crmRolePermission(configuration, req.user.role).view) return res.status(403).json({ success: false, message: 'Your account does not have CRM access.' });
+  res.json({ success: true, data: { configuration: crmConfigurationResponse(configuration) } });
+});
+
+router.patch('/crm/config', async (req, res) => {
+  if (!['SUPER_ADMIN', 'HR'].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only workspace administrators can change CRM settings.' });
+  const input = validateRequest(z.object({
+    pipelines: z.record(z.string().regex(/^[a-z][a-z0-9_-]{1,39}$/), z.array(z.string().trim().min(1).max(40)).min(1).max(30)).optional(),
+    fields: z.array(z.object({
+      key: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,79}$/),
+      label: z.string().trim().min(1).max(80),
+      type: z.enum(['TEXT', 'NUMBER', 'DATE', 'SELECT']),
+      options: z.array(z.string().trim().min(1).max(80)).max(50).optional().default([]),
+      required: z.boolean().optional().default(false),
+      kinds: z.array(z.string().max(40)).optional().default([])
+    })).max(100).optional(),
+    recordTypes: z.array(z.string().trim().regex(/^[a-z][a-z0-9_-]{1,39}$/)).min(1).max(30).optional(),
+    currency: z.string().regex(/^[A-Z]{3}$/).optional(),
+    dateFormat: z.enum(['YYYY-MM-DD', 'DD/MM/YYYY', 'MM/DD/YYYY']).optional(),
+    scoringRules: z.array(z.object({
+      field: z.string().min(1).max(80),
+      operator: z.enum(['equals', 'contains', 'present']),
+      value: z.string().max(200).optional().default(''),
+      points: z.number().int().min(0).max(100)
+    })).max(100).optional(),
+    permissions: z.record(z.enum(['HR', 'EMPLOYEE', 'CLIENT']), z.object({
+      view: z.boolean(),
+      edit: z.boolean(),
+      export: z.boolean(),
+      assign: z.boolean()
+    })).optional(),
+    emailTemplates: z.array(z.object({
+      name: z.string().trim().min(1).max(80),
+      subject: z.string().max(200).optional().default(''),
+      body: z.string().min(1).max(5000),
+      kind: z.enum(['EMAIL', 'ACTIVITY'])
+    })).max(50).optional(),
+    automations: z.array(z.object({
+      name: z.string().trim().min(1).max(80),
+      trigger: z.enum(['FOLLOW_UP_DUE', 'STAGE_CHANGED']),
+      enabled: z.boolean(),
+      stage: z.string().max(40).optional().default(''),
+      templateName: z.string().max(80).optional().default(''),
+      delayDays: z.number().int().min(0).max(365).optional().default(1)
+    })).max(50).optional()
+  }), req.body || {});
+  const configuration = await getCrmConfiguration();
+  if (input.pipelines) configuration.pipelines = input.pipelines;
+  for (const [key, value] of Object.entries(input)) {
+    if (key !== 'pipelines') configuration[key] = value;
+  }
+  await configuration.save();
+  await audit(req, 'CRM_CONFIGURATION_UPDATED', 'CrmConfiguration', configuration.id, Object.keys(input));
+  res.json({ success: true, data: { configuration: crmConfigurationResponse(configuration) } });
+});
+
+router.get('/crm/views', async (req, res) => {
+  if (!canAccessModule(req, 'crm')) return res.status(403).json({ success: false, message: 'Your account does not have CRM access.' });
+  if (!crmRolePermission(await getCrmConfiguration(), req.user.role).view) return res.status(403).json({ success: false, message: 'Your CRM role does not allow viewing saved views.' });
+  const views = await CrmSavedView.find({ $or: [{ owner: req.user._id }, { shared: true }] }).sort({ updatedAt: -1 }).lean();
+  res.json({ success: true, data: { views } });
+});
+
+router.post('/crm/views', async (req, res) => {
+  if (!canAccessModule(req, 'crm')) return res.status(403).json({ success: false, message: 'Your account does not have CRM access.' });
+  if (!crmRolePermission(await getCrmConfiguration(), req.user.role).view) return res.status(403).json({ success: false, message: 'Your account does not have CRM access.' });
+  const input = validateRequest(z.object({
+    name: z.string().trim().min(1).max(80),
+    shared: z.boolean().optional().default(false),
+    layout: z.enum(['TABLE', 'KANBAN', 'CALENDAR']).optional().default('TABLE'),
+    filters: z.object({
+      kind: z.string().max(40).optional().default(''),
+      status: z.string().max(40).optional().default(''),
+      assignedTo: z.string().max(40).optional().default(''),
+      search: z.string().max(100).optional().default(''),
+      overdue: z.boolean().optional().default(false)
+    }).optional().default({})
+  }), req.body || {});
+  const view = await CrmSavedView.create({ ...input, owner: req.user._id });
+  await audit(req, 'CRM_SAVED_VIEW_CREATED', 'CrmSavedView', view.id, { shared: view.shared });
+  res.status(201).json({ success: true, data: { view } });
+});
+
+router.delete('/crm/views/:id', async (req, res) => {
+  if (!canAccessModule(req, 'crm')) return res.status(403).json({ success: false, message: 'Your account does not have CRM access.' });
+  if (!crmRolePermission(await getCrmConfiguration(), req.user.role).view) return res.status(403).json({ success: false, message: 'Your CRM role does not allow managing saved views.' });
+  const view = await CrmSavedView.findOneAndDelete({ _id: req.params.id, owner: req.user._id });
+  if (!view) return res.status(404).json({ success: false, message: 'Saved view not found.' });
+  await audit(req, 'CRM_SAVED_VIEW_DELETED', 'CrmSavedView', view.id);
+  res.json({ success: true, message: 'Saved view deleted.' });
+});
+
+router.get('/crm/conflicts', async (req, res) => {
+  if (!['SUPER_ADMIN', 'HR'].includes(req.user.role)) return res.status(403).json({ success: false, message: 'Only workspace administrators can review sync conflicts.' });
+  const conflicts = await CrmSyncConflict.find({ status: 'OPEN' }).populate('record').sort({ createdAt: 1 }).limit(100);
+  res.json({ success: true, data: { conflicts } });
+});
+
+router.post('/crm/salesforce/connect', async (req, res) => {
+  if (req.user.role !== 'SUPER_ADMIN') return res.status(403).json({ success: false, message: 'Only the workspace Owner can connect Salesforce.' });
+  const configuration = await getCrmConfiguration();
+  const authorizationUrl = createSalesforceAuthorizationUrl(configuration);
+  await configuration.save();
+  res.json({ success: true, data: { authorizationUrl } });
+});
+
+router.get('/crm/salesforce/callback', async (req, res) => {
+  if (req.user.role !== 'SUPER_ADMIN') return res.status(403).json({ success: false, message: 'Only the workspace Owner can connect Salesforce.' });
+  if (req.query.error) return res.status(400).json({ success: false, message: `Salesforce authorization failed: ${String(req.query.error_description || req.query.error).slice(0, 300)}` });
+  const configuration = await getCrmConfiguration();
+  await exchangeSalesforceCode(configuration, String(req.query.code || ''), String(req.query.state || ''));
+  const clientUrl = new URL(process.env.CLIENT_URL || 'http://localhost:5173');
+  clientUrl.pathname = '/crm';
+  clientUrl.search = '?salesforce=connected';
+  res.redirect(clientUrl.toString());
+});
+
+router.post('/crm/salesforce/sync', async (req, res) => {
+  if (req.user.role !== 'SUPER_ADMIN') return res.status(403).json({ success: false, message: 'Only the workspace Owner can run Salesforce sync.' });
+  await syncCrmWithSalesforce();
+  res.json({ success: true, message: 'Salesforce sync completed.' });
+});
+
+router.delete('/crm/salesforce/connect', async (req, res) => {
+  if (req.user.role !== 'SUPER_ADMIN') return res.status(403).json({ success: false, message: 'Only the workspace Owner can disconnect Salesforce.' });
+  const configuration = await getCrmConfiguration();
+  configuration.salesforce.enabled = false;
+  configuration.salesforce.refreshTokenEncrypted = '';
+  configuration.salesforce.instanceUrl = '';
+  configuration.salesforce.lastSyncError = '';
+  await configuration.save();
+  res.json({ success: true, message: 'Salesforce disconnected. Existing CRM records and sync history were kept.' });
+});
+
+router.patch('/crm/conflicts/:id', async (req, res) => {
+  if (req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'HR') return res.status(403).json({ success: false, message: 'Only workspace administrators can resolve sync conflicts.' });
+  const { resolution } = validateRequest(z.object({ resolution: z.enum(['LOCAL', 'SALESFORCE']) }), req.body || {});
+  const conflict = await CrmSyncConflict.findOne({ _id: req.params.id, status: 'OPEN' });
+  if (!conflict) return res.status(404).json({ success: false, message: 'Open Salesforce conflict not found.' });
+  conflict.resolvedBy = req.user._id;
+  await resolveCrmSalesforceConflict(conflict, resolution);
+  res.json({ success: true, message: `Conflict resolved using the ${resolution === 'LOCAL' ? 'VandeOS' : 'Salesforce'} record.` });
+});
+
+router.get('/crm/export.csv', async (req, res) => {
+  const configuration = await getCrmConfiguration();
+  if (!canAccessCrm(req, configuration) || !crmRolePermission(configuration, req.user.role).export) return res.status(403).json({ success: false, message: 'Your CRM role does not allow exporting records.' });
+  const records = await WorkspaceRecord.find({ module: 'crm', archivedAt: null, ...recordScope(req, 'crm') }).sort({ createdAt: 1 }).lean();
+  res.type('text/csv; charset=utf-8')
+    .set('Content-Disposition', 'attachment; filename="crm-export.csv"')
+    .send(serializeCrmCsv(records));
+});
+
+router.post('/crm/import.csv', async (req, res) => {
+  const configuration = await getCrmConfiguration();
+  if (!canAccessCrm(req, configuration) || !crmRolePermission(configuration, req.user.role).edit) return res.status(403).json({ success: false, message: 'Your CRM role does not allow importing records.' });
+  let inputs;
+  try {
+    inputs = parseCrmCsv(req.body);
+    inputs = inputs.map((input, index) => {
+      try {
+        const values = validateInput(input);
+        validateCrmFields(values, configuration);
+        return normalizeInput(values, 'crm', crmModuleConfiguration(configuration));
+      } catch (error) {
+        error.message = `CSV row ${index + 2}: ${error.message}`;
+        throw error;
+      }
+    });
+  } catch (error) {
+    error.status = 400;
+    throw error;
+  }
+  const records = await WorkspaceRecord.insertMany(inputs.map(input => ({ ...input, assignedTo: req.user._id, createdBy: req.user._id })));
+  await audit(req, 'CRM_RECORDS_IMPORTED', 'WorkspaceRecord', '', { count: records.length });
+  res.status(201).json({ success: true, data: { imported: records.length } });
+});
+
+router.get('/crm', async (req, res) => {
+  if (!canAccessModule(req, 'crm')) return res.status(403).json({ success: false, message: 'Your account does not have CRM access.' });
+  const configuration = await getCrmConfiguration();
+  if (!crmRolePermission(configuration, req.user.role).view) return res.status(403).json({ success: false, message: 'Your CRM role does not allow viewing records.' });
+  const { page, limit, skip } = pageArgs(req);
+  const scope = { module: 'crm', archivedAt: null, ...recordScope(req, 'crm') };
+  if (req.query.kind && configuration.recordTypes.includes(String(req.query.kind))) scope.kind = String(req.query.kind);
+  const filters = {};
+  if (req.query.view) {
+    const view = await CrmSavedView.findOne({
+      _id: req.query.view,
+      $or: [{ owner: req.user._id }, { shared: true }]
+    }).lean();
+    if (view) Object.assign(filters, view.filters);
+  }
+  const kind = String(req.query.kind || filters.kind || '');
+  const status = String(req.query.status || filters.status || '');
+  const assignedTo = String(req.query.assignedTo || filters.assignedTo || '');
+  if (kind && configuration.recordTypes.includes(kind)) scope.kind = kind;
+  const pipeline = configuration.pipelines instanceof Map
+    ? configuration.pipelines.get(kind)
+    : configuration.pipelines?.[kind];
+  if (status && (!kind || pipeline?.includes(status))) scope.status = status;
+  if (assignedTo) scope.assignedTo = assignedTo === 'me' ? req.user._id : assignedTo;
+  if (req.query.overdue === 'true' || filters.overdue) {
+    scope.dueDate = { $lt: new Date() };
+    scope.status = { $nin: ['DONE', 'WON', 'LOST', 'CANCELLED'] };
+  }
+  const search = String(req.query.search || filters.search || '').trim().slice(0, 100);
+  if (search) {
+    const value = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    scope.$or = [
+      { title: { $regex: value, $options: 'i' } },
+      { description: { $regex: value, $options: 'i' } },
+      ...configuration.fields.map(field => ({ [`data.${field.key}`]: { $regex: value, $options: 'i' } }))
+    ];
+  }
+  const [records, total] = await Promise.all([
+    WorkspaceRecord.find(scope).populate('createdBy', 'name').populate('assignedTo', 'name employeeId').populate('client', 'title kind').sort({ dueDate: 1, updatedAt: -1 }).skip(skip).limit(limit).lean(),
+    WorkspaceRecord.countDocuments(scope)
+  ]);
+  const data = records.map(record => ({ ...record, score: record.kind === 'lead' ? calculateLeadScore(record, configuration) : undefined }));
+  res.json({ success: true, data: { records: data }, meta: { page, limit, total, pages: Math.ceil(total / limit) } });
+});
+
+router.get('/crm/reports', async (req, res) => {
+  if (!canAccessModule(req, 'crm')) return res.status(403).json({ success: false, message: 'Your account does not have CRM access.' });
+  const configuration = await getCrmConfiguration();
+  if (!crmRolePermission(configuration, req.user.role).view) {
+    return res.status(403).json({ success: false, message: 'Your CRM role does not allow viewing reports.' });
+  }
+  const scope = { module: 'crm', archivedAt: null, ...recordScope(req, 'crm') };
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const recordFilter = { ...scope, kind: { $in: ['lead', 'deal'] } };
+  const [statuses, sources, owners, overdue, totalsRows] = await Promise.all([
+    WorkspaceRecord.aggregate([
+      { $match: recordFilter },
+      { $group: { _id: { kind: '$kind', status: '$status' }, count: { $sum: 1 }, amount: { $sum: { $ifNull: ['$amount', 0] } } } },
+      { $sort: { '_id.kind': 1, count: -1 } }
+    ]),
+    WorkspaceRecord.aggregate([
+      { $match: { ...scope, kind: 'lead', 'data.source': { $nin: ['', null] } } },
+      { $group: { _id: '$data.source', count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 10 }
+    ]),
+    WorkspaceRecord.aggregate([
+      { $match: recordFilter },
+      { $group: { _id: '$assignedTo', count: { $sum: 1 }, wonDeals: { $sum: { $cond: [{ $and: [{ $eq: ['$kind', 'deal'] }, { $eq: ['$status', 'WON'] }] }, 1, 0] } }, wonRevenue: { $sum: { $cond: [{ $and: [{ $eq: ['$kind', 'deal'] }, { $eq: ['$status', 'WON'] }] }, { $ifNull: ['$amount', 0] }, 0] } } } },
+      { $sort: { wonRevenue: -1, count: -1 } },
+      { $limit: 10 }
+    ]),
+    WorkspaceRecord.countDocuments({
+      ...scope,
+      kind: 'activity',
+      'data.interactionType': 'TASK',
+      dueDate: { $lt: today },
+      status: { $nin: ['DONE', 'WON', 'LOST', 'CANCELLED', 'INACTIVE'] }
+    }),
+    WorkspaceRecord.aggregate([
+      { $match: recordFilter },
+      { $group: { _id: null, leads: { $sum: { $cond: [{ $eq: ['$kind', 'lead'] }, 1, 0] } }, qualifiedLeads: { $sum: { $cond: [{ $and: [{ $eq: ['$kind', 'lead'] }, { $in: ['$status', ['QUALIFIED', 'PROPOSAL', 'WON']] }] }, 1, 0] } }, deals: { $sum: { $cond: [{ $eq: ['$kind', 'deal'] }, 1, 0] } }, wonDeals: { $sum: { $cond: [{ $and: [{ $eq: ['$kind', 'deal'] }, { $eq: ['$status', 'WON'] }] }, 1, 0] } }, openDeals: { $sum: { $cond: [{ $and: [{ $eq: ['$kind', 'deal'] }, { $not: [{ $in: ['$status', ['WON', 'LOST', 'CANCELLED']] }] }] }, 1, 0] } }, wonRevenue: { $sum: { $cond: [{ $and: [{ $eq: ['$kind', 'deal'] }, { $eq: ['$status', 'WON'] }] }, { $ifNull: ['$amount', 0] }, 0] } } } }
+    ])
+  ]);
+  const ownerIds = owners.map(owner => owner._id).filter(Boolean);
+  const ownerRecords = ownerIds.length
+    ? await User.find({ _id: { $in: ownerIds } }).select('name').lean()
+    : [];
+  const ownerNames = new Map(ownerRecords.map(owner => [String(owner._id), owner.name]));
+  const ownerSummary = owners.map(owner => ({
+    ownerId: owner._id,
+    ownerName: ownerNames.get(String(owner._id)) || 'Unassigned',
+    count: owner.count,
+    wonDeals: owner.wonDeals,
+    wonRevenue: owner.wonRevenue
+  }));
+  const totals = totalsRows[0] || { leads: 0, qualifiedLeads: 0, deals: 0, wonDeals: 0, openDeals: 0, wonRevenue: 0 };
+  const conversionRate = totals.deals ? Math.round((totals.wonDeals / totals.deals) * 1000) / 10 : 0;
+  res.json({
+    success: true,
+    data: {
+      summary: {
+        ...totals,
+        conversionRate,
+        overdue
+      },
+      pipeline: statuses,
+      leadSources: sources,
+      owners: ownerSummary
+    }
+  });
+});
+
+router.get('/crm/:id/timeline', async (req, res) => {
+  if (!canAccessModule(req, 'crm')) return res.status(403).json({ success: false, message: 'Your account does not have CRM access.' });
+  const configuration = await getCrmConfiguration();
+  if (!crmRolePermission(configuration, req.user.role).view) {
+    return res.status(403).json({ success: false, message: 'Your CRM role does not allow viewing records.' });
+  }
+  const parent = await WorkspaceRecord.findOne({
+    _id: req.params.id,
+    module: 'crm',
+    kind: { $in: ['lead', 'client', 'contact', 'deal'] },
+    archivedAt: null,
+    ...recordScope(req, 'crm')
+  }).select('_id');
+  if (!parent) return res.status(404).json({ success: false, message: 'CRM record not found.' });
+  const timeline = await WorkspaceRecord.find({
+    module: 'crm',
+    kind: 'activity',
+    parent: parent._id,
+    archivedAt: null
+  }).populate('createdBy assignedTo', 'name').sort({ createdAt: -1 }).limit(100).lean();
+  res.json({ success: true, data: { timeline } });
+});
+
+router.post('/crm/:id/timeline', async (req, res) => {
+  if (!canAccessModule(req, 'crm')) return res.status(403).json({ success: false, message: 'Your account does not have CRM access.' });
+  const configuration = await getCrmConfiguration();
+  if (!crmRolePermission(configuration, req.user.role).edit) {
+    return res.status(403).json({ success: false, message: 'Your CRM role does not allow adding timeline entries.' });
+  }
+  const input = validateRequest(z.object({
+    type: z.enum(['CALL', 'EMAIL', 'MEETING', 'NOTE', 'TASK']),
+    title: z.string().trim().min(2).max(180),
+    description: z.string().trim().max(5000).optional().default(''),
+    occurredAt: z.iso.datetime().optional(),
+    dueDate: z.iso.date().nullable().optional()
+  }), req.body || {});
+  const parent = await WorkspaceRecord.findOne({
+    _id: req.params.id,
+    module: 'crm',
+    kind: { $in: ['lead', 'client', 'contact', 'deal'] },
+    archivedAt: null,
+    ...recordScope(req, 'crm')
+  }).select('_id title');
+  if (!parent) return res.status(404).json({ success: false, message: 'CRM record not found.' });
+  if (input.dueDate && input.type !== 'TASK') {
+    return res.status(400).json({ success: false, message: 'A due date can only be set for a follow-up task.' });
+  }
+  const activity = await WorkspaceRecord.create({
+    module: 'crm',
+    kind: 'activity',
+    title: input.title,
+    description: input.description,
+    status: input.type === 'TASK' ? 'OPEN' : 'DONE',
+    parent: parent._id,
+    assignedTo: req.user._id,
+    createdBy: req.user._id,
+    dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null,
+    data: {
+      interactionType: input.type,
+      occurredAt: input.occurredAt || new Date().toISOString()
+    }
+  });
+  await audit(req, 'CRM_TIMELINE_ENTRY_CREATED', 'WorkspaceRecord', activity.id, {
+    parent: parent.id,
+    type: input.type
+  });
+  await notifyRole(['SUPER_ADMIN', 'HR'], 'CRM timeline updated', `${req.user.name} added ${input.type.toLowerCase()} to ${parent.title}.`, 'INFO', '/crm');
+  res.status(201).json({ success: true, data: { activity } });
+});
+
 router.get('/:module', async (req, res) => {
   const { module } = req.params;
   const config = modules[module];
@@ -198,14 +597,18 @@ router.get('/:module', async (req, res) => {
 
 router.post('/:module', async (req, res) => {
   const { module } = req.params;
-  const config = modules[module];
+  const configuration = module === 'crm' ? await getCrmConfiguration() : null;
+  const config = module === 'crm' ? crmModuleConfiguration(configuration) : modules[module];
   if (!config) return res.status(404).json({ success: false, message: 'Workspace module not found.' });
   const portalTicket = req.user.role === 'CLIENT' && module === 'support';
   const portalSubmission = req.user.role === 'STUDENT' && module === 'academy';
-  if ((!canAccessModule(req, module, config) || !canWrite(req, module, config)) && !portalTicket && !portalSubmission) return res.status(403).json({ success: false, message: 'Your account does not have permission to create records here.' });
+  if (module === 'crm' && (!canAccessCrm(req, configuration) || !crmRolePermission(configuration, req.user.role).edit)) return res.status(403).json({ success: false, message: 'Your CRM role does not allow creating records.' });
+  if (module !== 'crm' && (!canAccessModule(req, module, config) || !canWrite(req, module, config)) && !portalTicket && !portalSubmission) return res.status(403).json({ success: false, message: 'Your account does not have permission to create records here.' });
   const parsedInput = validateInput(req.body || {});
+  if (module === 'crm') validateCrmFields(parsedInput, configuration);
   if (parsedInput.portalEmail && req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'HR') return res.status(403).json({ success: false, message: 'Only workspace staff can provision portal accounts.' });
   const input = normalizeInput(parsedInput, module, config);
+  if (module === 'crm' && !input.assignedTo) input.assignedTo = req.user._id;
   if (portalTicket) {
     if (!req.user.portalRecord || input.kind !== 'ticket') return res.status(403).json({ success: false, message: 'This client account cannot open that type of support record.' });
     input.client = req.user.portalRecord;
@@ -229,6 +632,9 @@ router.post('/:module', async (req, res) => {
   const portalRole = module === 'crm' && input.kind === 'client' ? 'CLIENT' : module === 'academy' && input.kind === 'student' ? 'STUDENT' : null;
   if (input.portalEmail && !portalRole) return res.status(400).json({ success: false, message: 'Portal access can only be created for client and student records.' });
   if (input.portalEmail && await User.exists({ email: input.portalEmail.toLowerCase() })) return res.status(409).json({ success: false, message: 'An account already uses that portal email.' });
+  if (module === 'crm' && input.assignedTo && !crmRolePermission(configuration, req.user.role).assign && String(input.assignedTo) !== String(req.user._id)) {
+    return res.status(403).json({ success: false, message: 'Your CRM role does not allow assigning records to other users.' });
+  }
   if (input.assignedTo && !await User.exists({ _id: input.assignedTo, active: true, role: { $in: ['SUPER_ADMIN', 'HR', 'EMPLOYEE'] } })) {
     return res.status(400).json({ success: false, message: 'Choose an active staff member for assignment.' });
   }
@@ -403,9 +809,11 @@ router.post('/academy/:id/review', academyReviewAccess, async (req, res) => {
 
 router.patch('/:module/:id', async (req, res) => {
   const { module } = req.params;
-  const config = modules[module];
+  const configuration = module === 'crm' ? await getCrmConfiguration() : null;
+  const config = module === 'crm' ? crmModuleConfiguration(configuration) : modules[module];
   if (!config) return res.status(404).json({ success: false, message: 'Workspace module not found.' });
-  if (!canAccessModule(req, module, config) || !canWrite(req, module, config)) return res.status(403).json({ success: false, message: 'Your account does not have permission to update records here.' });
+  if (module === 'crm' && (!canAccessCrm(req, configuration) || !crmRolePermission(configuration, req.user.role).edit)) return res.status(403).json({ success: false, message: 'Your CRM role does not allow editing records.' });
+  if (module !== 'crm' && (!canAccessModule(req, module, config) || !canWrite(req, module, config))) return res.status(403).json({ success: false, message: 'Your account does not have permission to update records here.' });
   const record = await WorkspaceRecord.findOne({ _id: req.params.id, module, archivedAt: null, ...recordScope(req, module) });
   if (!record) return res.status(404).json({ success: false, message: 'Record not found.' });
   if (Object.hasOwn(req.body || {}, 'stockQuantity')) return res.status(400).json({ success: false, message: 'Use an inventory movement to change stock quantity.' });
@@ -415,6 +823,10 @@ router.patch('/:module/:id', async (req, res) => {
   if (req.body?.kind && req.body.kind !== record.kind) return res.status(400).json({ success: false, message: 'Record type cannot be changed after creation.' });
   if (Object.hasOwn(req.body || {}, 'portalEmail')) return res.status(400).json({ success: false, message: 'Portal account email cannot be changed here.' });
   const patch = validateInput(req.body || {}, true);
+  if (module === 'crm') {
+    const data = patch.data ? { ...Object.fromEntries(record.data || []), ...patch.data } : Object.fromEntries(record.data || []);
+    validateCrmFields({ ...patch, kind: record.kind, data }, configuration);
+  }
   const input = normalizeInput({
     kind: patch.kind ?? record.kind,
     title: patch.title ?? record.title,
@@ -430,6 +842,9 @@ router.patch('/:module/:id', async (req, res) => {
     minStockLevel: patch.minStockLevel === undefined ? record.minStockLevel : patch.minStockLevel,
     currency: patch.currency ?? record.currency
   }, module, config, record);
+  if (module === 'crm' && Object.hasOwn(req.body || {}, 'assignedTo') && !crmRolePermission(configuration, req.user.role).assign) {
+    return res.status(403).json({ success: false, message: 'Your CRM role does not allow assigning records.' });
+  }
   if (module === 'finance' && record.kind === 'invoice') {
     if (input.amount !== null && input.amount !== undefined && input.amount < record.paidAmount) return res.status(400).json({ success: false, message: 'Invoice total cannot be lower than the amount already paid.' });
     if (input.status === 'PAID' && record.paidAmount < (input.amount ?? record.amount)) return res.status(400).json({ success: false, message: 'Record payments against the invoice to mark it paid.' });
@@ -442,10 +857,12 @@ router.patch('/:module/:id', async (req, res) => {
   const linkError = await validateLinks(module, record.kind, input.parent, input.client, input.student);
   if (linkError) return res.status(400).json({ success: false, message: linkError });
   const previousAssignedTo = String(record.assignedTo || '');
+  const previousStatus = record.status;
   for (const key of ['kind', 'title', 'description', 'status', 'data', 'assignedTo', 'parent', 'client', 'student', 'dueDate', 'amount', 'minStockLevel', 'currency']) {
     if (input[key] !== undefined) record[key] = input[key];
   }
   await record.save();
+  if (module === 'crm' && previousStatus !== record.status) await runCrmStageAutomations(record, previousStatus);
   await audit(req, 'WORKSPACE_RECORD_UPDATED', 'WorkspaceRecord', record.id, { module, kind: record.kind, changed: Object.keys(req.body) });
   if (input.assignedTo && String(input.assignedTo) !== String(req.user._id) && String(input.assignedTo) !== previousAssignedTo) {
     await notify(input.assignedTo, 'Work assigned to you', `“${record.title}” was assigned to you.`, 'INFO', `/${module}`);
@@ -461,9 +878,11 @@ router.patch('/:module/:id', async (req, res) => {
 
 router.post('/:module/:id/archive', async (req, res) => {
   const { module } = req.params;
-  const config = modules[module];
+  const configuration = module === 'crm' ? await getCrmConfiguration() : null;
+  const config = module === 'crm' ? crmModuleConfiguration(configuration) : modules[module];
   if (!config) return res.status(404).json({ success: false, message: 'Workspace module not found.' });
-  if (!canAccessModule(req, module, config) || !canWrite(req, module, config)) return res.status(403).json({ success: false, message: 'Your account does not have permission to archive records here.' });
+  if (module === 'crm' && (!canAccessCrm(req, configuration) || !crmRolePermission(configuration, req.user.role).edit)) return res.status(403).json({ success: false, message: 'Your CRM role does not allow archiving records.' });
+  if (module !== 'crm' && (!canAccessModule(req, module, config) || !canWrite(req, module, config))) return res.status(403).json({ success: false, message: 'Your account does not have permission to archive records here.' });
   const record = await WorkspaceRecord.findOne({ _id: req.params.id, module, archivedAt: null, ...recordScope(req, module) });
   if (!record) return res.status(404).json({ success: false, message: 'Record not found.' });
   if (module === 'inventory' && record.kind === 'item' && record.stockQuantity > 0) return res.status(409).json({ success: false, message: 'Record an issue movement and bring stock to zero before archiving this item.' });

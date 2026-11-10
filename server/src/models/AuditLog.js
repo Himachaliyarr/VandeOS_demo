@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantModel } from '../services/tenantContext.js';
 
 const auditLogSchema = new mongoose.Schema({
   actor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
@@ -9,4 +10,4 @@ const auditLogSchema = new mongoose.Schema({
   ipAddress: { type: String, default: '' }
 }, { timestamps: true });
 auditLogSchema.index({ createdAt: -1 });
-export default mongoose.model('AuditLog', auditLogSchema);
+export default tenantModel('AuditLog', auditLogSchema);

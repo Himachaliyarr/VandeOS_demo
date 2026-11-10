@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantModel } from '../services/tenantContext.js';
 
 const organizationSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true, default: 'Vande Digital' },
@@ -14,4 +15,4 @@ const organizationSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-export default mongoose.model('Organization', organizationSchema);
+export default tenantModel('Organization', organizationSchema);

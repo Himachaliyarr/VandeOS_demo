@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Activity, Bell, BookOpen, BriefcaseBusiness, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleDollarSign, CircleHelp, Clock3, LayoutDashboard, LifeBuoy, LogOut, Megaphone, Menu, Package, Settings2, Users, Workflow, X } from 'lucide-react';
+import { Activity, Bell, BookOpen, BriefcaseBusiness, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleDollarSign, CircleHelp, Clock3, LayoutDashboard, LifeBuoy, LogOut, Megaphone, Menu, Moon, Package, Settings2, Sun, Users, Workflow, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { api, initials, titleCase } from '../lib/api.js';
@@ -27,12 +27,17 @@ const links = [
 ];
 
 export default function Layout() {
-  const { user, signOut } = useAuth();
+  const { user, organization, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [unread, setUnread] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem('vandeos-theme') === 'light' ? 'light' : 'dark');
   useEffect(() => { api('/notifications?limit=1').then(result => setUnread(result.data.unread || 0)).catch(() => {}); }, [location.pathname]);
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('vandeos-theme', theme);
+  }, [theme]);
   const logout = async () => { await signOut(); navigate('/login'); };
   const portalUser = ['CLIENT', 'STUDENT'].includes(user.role);
   const internalUser = ['SUPER_ADMIN', 'HR', 'EMPLOYEE'].includes(user.role);
@@ -42,12 +47,12 @@ export default function Layout() {
   return <div className="app-shell">
     <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}>
       <div className="brand"><div className="brand-mark">V<span>.</span></div><div><strong>vande<span>os</span></strong><small>PEOPLE OPERATIONS</small></div><button className="sidebar-close icon-button" onClick={() => setMenuOpen(false)} aria-label="Close menu"><X size={18} /></button></div>
-      <div className="workspace-switch"><div className="workspace-glyph">VD</div><div><strong>Vande Digital</strong><small>Single office · India</small></div><ChevronDown size={15} /></div>
+      <div className="workspace-switch"><div className="workspace-glyph">{initials(organization?.name || 'Vande Digital')}</div><div><strong>{organization?.name || 'Vande Digital'}</strong><small>Organization workspace</small></div><ChevronDown size={15} /></div>
       <div className="nav-caption">WORKSPACE</div>
       <nav className="side-nav">{visibleLinks.map(({ to, label, icon: Icon }) => <NavLink key={to} end={to === '/'} to={to} onClick={() => setMenuOpen(false)} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}><Icon size={18} strokeWidth={1.8} /><span>{label}</span>{label === 'Notifications' && unread > 0 && <i className="nav-count">{unread > 9 ? '9+' : unread}</i>}</NavLink>)}</nav>
       <div className="sidebar-bottom"><div className="help-card"><CircleHelp size={17} /><div><strong>Need a hand?</strong><span>Read the setup guide</span></div><span className="help-arrow">↗</span></div><div className="user-menu"><div className="avatar avatar-mint">{initials(user.name)}</div><div className="user-menu-copy"><strong>{user.name}</strong><span>{titleCase(user.role)}</span></div><button onClick={logout} className="icon-button logout-button" aria-label="Sign out"><LogOut size={17} /></button></div></div>
     </aside>
     {menuOpen && <button className="mobile-scrim" onClick={() => setMenuOpen(false)} aria-label="Close navigation" />}
-    <main className="main-area"><header className="topbar"><button className="mobile-menu icon-button" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Menu size={20} /></button><div className="crumb"><span>Workspace</span><span className="crumb-slash">/</span><strong>{pageTitle}</strong></div><div className="topbar-right"><div className="live-status"><span />All systems operational</div><div className="topbar-divider" /><button className="topbar-user" onClick={() => navigate('/notifications')} title="Notifications"><Bell size={18} />{unread > 0 && <i />}</button><button className="topbar-avatar" onClick={() => navigate('/settings')}>{initials(user.name)}</button></div></header><div className="content"><Outlet /></div><footer className="footer"><span>VANDE OS <b>•</b> WORKSPACE</span><span>Built for people to do their best work.</span></footer></main>
+    <main className="main-area"><header className="topbar"><button className="mobile-menu icon-button" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Menu size={20} /></button><div className="crumb"><span>{organization?.name || 'Workspace'}</span><span className="crumb-slash">/</span><strong>{pageTitle}</strong></div><div className="topbar-right"><button className="icon-button theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button><div className="live-status"><span />All systems operational</div><div className="topbar-divider" /><button className="topbar-user" onClick={() => navigate('/notifications')} title="Notifications"><Bell size={18} />{unread > 0 && <i />}</button><button className="topbar-avatar" onClick={() => navigate('/settings')}>{initials(user.name)}</button></div></header><div className="content"><Outlet /></div><footer className="footer"><span>VANDE OS <b>•</b> {organization?.name || 'WORKSPACE'}</span><span>Built for people to do their best work.</span></footer></main>
   </div>;
 }

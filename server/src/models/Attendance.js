@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantModel } from '../services/tenantContext.js';
 
 const pointSchema = new mongoose.Schema({
   latitude: { type: Number, required: true, min: -90, max: 90 },
@@ -22,4 +23,4 @@ const attendanceSchema = new mongoose.Schema({
   status: { type: String, enum: ['IN_PROGRESS', 'COMPLETE'], default: 'IN_PROGRESS' }
 }, { timestamps: true });
 attendanceSchema.index({ user: 1, workDate: 1 }, { unique: true });
-export default mongoose.model('Attendance', attendanceSchema);
+export default tenantModel('Attendance', attendanceSchema);

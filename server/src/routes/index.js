@@ -11,7 +11,9 @@ import Attendance from '../models/Attendance.js';
 import LeaveRequest from '../models/LeaveRequest.js';
 import Notification from '../models/Notification.js';
 import AuditLog from '../models/AuditLog.js';
+import TenantRegistry from '../models/TenantRegistry.js';
 import { authenticate, allowRoles } from '../middleware/auth.js';
+import { connectionForTenant, runWithTenant } from '../services/tenantContext.js';
 import { audit } from '../services/audit.js';
 import { notify, notifyRole } from '../services/notifications.js';
 import { checkInPolicy } from '../services/attendancePolicy.js';
@@ -51,34 +53,55 @@ function pagination(req) {
 
 router.get('/health', (_req, res) => res.json({ success: true, status: 'ok', service: 'vande-os-api' }));
 
-// Authentication: public registration is intentionally disabled.
+// Authentication and organization login.
 router.post('/auth/login', async (req, res) => {
-  const input = validate(z.object({ email: z.email(), password: z.string().min(1) }), req.body);
-  const user = await User.findOne({ email: input.email.toLowerCase() }).select('+passwordHash');
-  if (!user || !user.active || !await user.verifyPassword(input.password)) {
-    return res.status(401).json({ success: false, message: 'Email or password is incorrect.' });
-  }
-  user.lastLoginAt = new Date();
-  await user.save();
-  const token = jwt.sign({ sub: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '12h' });
-  res.cookie('vande_session', token, sessionCookieOptions());
-  await audit({ user, ip: req.ip }, 'AUTH_LOGIN', 'User', user.id, {});
-  const safeUser = await User.findById(user.id).populate('division department shift');
-  res.json({ success: true, data: { user: safeUser.toSafeJSON() } });
+  const input = validate(z.object({ organizationSlug: z.string().trim().toLowerCase().min(3).max(40), email: z.email(), password: z.string().min(1) }), req.body);
+  const tenant = await TenantRegistry.findOne({ slug: input.organizationSlug, status: 'ACTIVE' });
+  if (!tenant) return res.status(401).json({ success: false, message: 'Organization, email, or password is incorrect.' });
+  return runWithTenant(connectionForTenant(tenant), async () => {
+    const user = await User.findOne({ email: input.email.toLowerCase() }).select('+passwordHash');
+    if (!user || !user.active || !await user.verifyPassword(input.password)) {
+      await audit(
+        { ip: req.ip },
+        'AUTH_LOGIN_FAILED',
+        'User',
+        user?.id || '',
+        { reason: !user ? 'USER_NOT_FOUND' : !user.active ? 'ACCOUNT_INACTIVE' : 'INVALID_PASSWORD' }
+      );
+      return res.status(401).json({ success: false, message: 'Organization, email, or password is incorrect.' });
+    }
+    user.lastLoginAt = new Date();
+    await user.save();
+    const token = jwt.sign({ sub: user.id, role: user.role, tenantSlug: tenant.slug }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '12h' });
+    res.cookie('vande_session', token, sessionCookieOptions());
+    await audit({ user, ip: req.ip }, 'AUTH_LOGIN', 'User', user.id, {});
+    const safeUser = await User.findById(user.id).populate('division department shift');
+    res.json({ success: true, data: { user: safeUser.toSafeJSON(), organization: { name: tenant.name, slug: tenant.slug } } });
+  });
 });
 
 router.post('/auth/logout', async (req, res) => {
   if (req.cookies?.vande_session) {
+    let payload;
     try {
-      const payload = jwt.verify(req.cookies.vande_session, process.env.JWT_SECRET);
-      await audit({ user: { _id: payload.sub }, ip: req.ip }, 'AUTH_LOGOUT', 'User', payload.sub, {});
+      payload = jwt.verify(req.cookies.vande_session, process.env.JWT_SECRET);
     } catch { /* expired session is still cleared */ }
+    if (payload) {
+      const tenant = await TenantRegistry.findOne({ slug: payload.tenantSlug || 'vande-digital', status: 'ACTIVE' });
+      if (tenant) await runWithTenant(connectionForTenant(tenant), () => audit({ user: { _id: payload.sub }, ip: req.ip }, 'AUTH_LOGOUT', 'User', payload.sub, {}));
+    }
   }
   res.clearCookie('vande_session', { ...sessionCookieOptions(), maxAge: undefined });
   res.json({ success: true, message: 'Signed out.' });
 });
 
-router.get('/auth/me', auth, (req, res) => res.json({ success: true, data: { user: req.user.toSafeJSON() } }));
+router.get('/auth/me', auth, (req, res) => res.json({
+  success: true,
+  data: {
+    user: req.user.toSafeJSON(),
+    organization: { name: req.tenant.name, slug: req.tenant.slug }
+  }
+}));
 
 router.post('/auth/change-password', auth, async (req, res) => {
   const input = validate(z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(12).max(128) }), req.body);

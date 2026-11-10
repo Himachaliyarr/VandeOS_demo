@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantModel } from '../services/tenantContext.js';
 
 const divisionSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
@@ -7,4 +8,4 @@ const divisionSchema = new mongoose.Schema({
   active: { type: Boolean, default: true }
 }, { timestamps: true });
 divisionSchema.index({ organization: 1, slug: 1 }, { unique: true });
-export default mongoose.model('Division', divisionSchema);
+export default tenantModel('Division', divisionSchema);
