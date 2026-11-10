@@ -1,10 +1,24 @@
 export const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'https://vandeos-demo-1.onrender.com/api');
 
+const accessTokenKey = 'vande_access_token';
+let accessToken = typeof window === 'undefined' ? null : window.sessionStorage.getItem(accessTokenKey);
+
+export function setAccessToken(token) {
+  accessToken = token;
+  if (typeof window === 'undefined') return;
+  if (token) window.sessionStorage.setItem(accessTokenKey, token);
+  else window.sessionStorage.removeItem(accessTokenKey);
+}
+
 export async function api(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (accessToken && !headers.Authorization && !headers.authorization) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
   const response = await fetch(`${API_URL}${path}`, {
     credentials: 'include',
     ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers,
     body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body
   });
   const payload = await response.json().catch(() => ({}));

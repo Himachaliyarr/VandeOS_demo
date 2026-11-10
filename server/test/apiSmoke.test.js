@@ -289,7 +289,12 @@ test('employee accounts can sign in and receive a session', async () => {
     save: async () => {}
   };
   User.findOne = () => ({ select: async () => employee });
-  User.findById = () => ({ populate: async () => ({ toSafeJSON: () => ({ id: employee.id, name: employee.name, email: employee.email, role: employee.role }) }) });
+  User.findById = () => ({
+    populate: async () => ({
+      ...employee,
+      toSafeJSON: () => ({ id: employee.id, name: employee.name, email: employee.email, role: employee.role })
+    })
+  });
   AuditLog.create = async () => ({});
   try {
     const response = await fetch(`${baseUrl}/api/auth/login`, {
@@ -301,11 +306,19 @@ test('employee accounts can sign in and receive a session', async () => {
     assert.equal(response.status, 200);
     assert.equal(body.data.user.role, 'EMPLOYEE');
     assert.deepEqual(body.data.organization, { name: 'Vande Digital', slug: 'vande-digital' });
+    assert.equal(jwt.decode(body.data.accessToken).sub, employee.id);
+    assert.equal(jwt.decode(body.data.accessToken).tenantSlug, 'vande-digital');
     const cookie = response.headers.get('set-cookie').split(';')[0];
     assert.equal(jwt.decode(cookie.slice('vande_session='.length)).tenantSlug, 'vande-digital');
     assert.match(response.headers.get('set-cookie') || '', /vande_session=.*; Path=\/; Expires=/);
     assert.match(response.headers.get('set-cookie') || '', /Secure/);
     assert.match(response.headers.get('set-cookie') || '', /SameSite=None/);
+
+    const sessionResponse = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${body.data.accessToken}` }
+    });
+    assert.equal(sessionResponse.status, 200);
+    assert.equal((await sessionResponse.json()).data.user.id, employee.id);
   } finally {
     User.findOne = originalFindOne;
     User.findById = originalFindById;

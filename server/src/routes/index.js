@@ -84,7 +84,14 @@ router.post('/auth/login', async (req, res) => {
     res.cookie('vande_session', token, sessionCookieOptions());
     await audit({ user, ip: req.ip }, 'AUTH_LOGIN', 'User', user.id, {});
     const safeUser = await User.findById(user.id).populate('division department shift');
-    res.json({ success: true, data: { user: safeUser.toSafeJSON(), organization: { name: tenant.name, slug: tenant.slug } } });
+    res.json({
+      success: true,
+      data: {
+        accessToken: token,
+        user: safeUser.toSafeJSON(),
+        organization: { name: tenant.name, slug: tenant.slug }
+      }
+    });
   });
 });
 
