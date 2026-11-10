@@ -324,7 +324,7 @@ router.get('/crm/salesforce/callback', async (req, res) => {
   if (req.query.error) return res.status(400).json({ success: false, message: `Salesforce authorization failed: ${String(req.query.error_description || req.query.error).slice(0, 300)}` });
   const configuration = await getCrmConfiguration();
   await exchangeSalesforceCode(configuration, String(req.query.code || ''), String(req.query.state || ''));
-  const clientUrl = new URL(process.env.CLIENT_URL || 'http://localhost:5173');
+  const clientUrl = new URL(process.env.CLIENT_URL || 'https://vandeos-demo-2.onrender.com');
   clientUrl.pathname = '/crm';
   clientUrl.search = '?salesforce=connected';
   res.redirect(clientUrl.toString());

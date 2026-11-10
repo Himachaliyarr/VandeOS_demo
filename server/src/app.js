@@ -79,7 +79,9 @@ const apiEndpoints = [
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173', credentials: true }));
+const clientOrigins = [process.env.CLIENT_URL || 'https://vandeos-demo-2.onrender.com'];
+if (process.env.NODE_ENV !== 'production') clientOrigins.push('http://localhost:5173');
+app.use(cors({ origin: clientOrigins, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.text({ type: 'text/csv', limit: '1mb' }));
 app.use(cookieParser());

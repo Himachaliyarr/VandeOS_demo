@@ -36,7 +36,14 @@ function validate(schema, value) {
 }
 
 function sessionCookieOptions() {
-  return { httpOnly: true, secure: process.env.COOKIE_SECURE === 'true', sameSite: 'lax', path: '/', maxAge: 12 * 60 * 60 * 1000 };
+  const crossSite = process.env.NODE_ENV === 'production';
+  return {
+    httpOnly: true,
+    secure: crossSite || process.env.COOKIE_SECURE === 'true',
+    sameSite: crossSite ? 'none' : 'lax',
+    path: '/',
+    maxAge: 12 * 60 * 60 * 1000
+  };
 }
 
 function todayInTimezone(timeZone = process.env.TIMEZONE || 'Asia/Kolkata') {
