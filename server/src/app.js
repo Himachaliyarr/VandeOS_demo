@@ -79,9 +79,14 @@ const apiEndpoints = [
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(helmet());
-const clientOrigins = [process.env.CLIENT_URL || 'https://vandeos-demo-2.onrender.com'];
-if (process.env.NODE_ENV !== 'production') clientOrigins.push('http://localhost:5173');
-app.use(cors({ origin: clientOrigins, credentials: true }));
+const clientOrigins = new Set(['https://vandeos-demo-2.onrender.com']);
+if (process.env.CLIENT_URL) {
+  const configuredOrigin = new URL(process.env.CLIENT_URL).origin;
+  const isLocalOrigin = ['localhost', '127.0.0.1'].includes(new URL(configuredOrigin).hostname);
+  if (process.env.NODE_ENV !== 'production' || !isLocalOrigin) clientOrigins.add(configuredOrigin);
+}
+if (process.env.NODE_ENV !== 'production') clientOrigins.add('http://localhost:5173');
+app.use(cors({ origin: [...clientOrigins], credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.text({ type: 'text/csv', limit: '1mb' }));
 app.use(cookieParser());
