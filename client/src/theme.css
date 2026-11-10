@@ -9,6 +9,41 @@
   color: var(--text);
 }
 
+.password-field {
+  position: relative;
+}
+
+.input-wrap.password-field > input,
+.form-stack .password-field > input {
+  padding-right: 40px;
+}
+
+.password-visibility-toggle {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.password-visibility-toggle:hover {
+  color: var(--text);
+}
+
+.password-visibility-toggle:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 1px;
+}
+
 :root[data-theme='light'] {
   color-scheme: light;
   color: #26332e;
@@ -32,6 +67,14 @@
 
 html[data-theme='light'] body {
   background: var(--bg);
+}
+
+html[data-theme='light'] .password-visibility-toggle {
+  color: #64736b;
+}
+
+html[data-theme='light'] .password-visibility-toggle:hover {
+  color: #26332e;
 }
 
 html[data-theme='light'] .sidebar {

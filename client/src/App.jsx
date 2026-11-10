@@ -4,6 +4,7 @@ import { useAuth } from './context/AuthContext.jsx';
 import Layout from './components/Layout.jsx';
 import Modal from './components/Modal.jsx';
 import { ErrorBanner, Loading, SuccessBanner } from './components/Primitives.jsx';
+import PasswordInput from './components/PasswordInput.jsx';
 import { api } from './lib/api.js';
 import { canAccessWorkspaceModule } from './lib/access.js';
 import Login from './pages/Login.jsx';
@@ -35,7 +36,7 @@ function PasswordGate() {
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
   if (!user?.mustChangePassword) return null;
-  return <Modal title="Secure your account" size="small" closable={false}><p className="modal-copy">Set a new password to finish setting up your account. Use at least 12 characters.</p><form className="form-stack" onSubmit={submit}><ErrorBanner>{error}</ErrorBanner><SuccessBanner>{success}</SuccessBanner><label>Current temporary password<input autoComplete="current-password" type="password" value={form.currentPassword} onChange={e => setForm({ ...form, currentPassword: e.target.value })} required /></label><label>New password<input autoComplete="new-password" type="password" value={form.newPassword} onChange={e => setForm({ ...form, newPassword: e.target.value })} required minLength="12" /></label><label>Confirm new password<input autoComplete="new-password" type="password" value={form.confirm} onChange={e => setForm({ ...form, confirm: e.target.value })} required minLength="12" /></label><button className="button button-primary button-wide" disabled={busy}>{busy ? 'Saving…' : 'Update password'}</button></form></Modal>;
+  return <Modal title="Secure your account" size="small" closable={false}><p className="modal-copy">Set a new password to finish setting up your account. Use at least 12 characters.</p><form className="form-stack" onSubmit={submit}><ErrorBanner>{error}</ErrorBanner><SuccessBanner>{success}</SuccessBanner><label>Current temporary password<div className="password-field"><PasswordInput autoComplete="current-password" value={form.currentPassword} onChange={e => setForm({ ...form, currentPassword: e.target.value })} required /></div></label><label>New password<div className="password-field"><PasswordInput autoComplete="new-password" value={form.newPassword} onChange={e => setForm({ ...form, newPassword: e.target.value })} required minLength="12" /></div></label><label>Confirm new password<div className="password-field"><PasswordInput autoComplete="new-password" value={form.confirm} onChange={e => setForm({ ...form, confirm: e.target.value })} required minLength="12" /></div></label><button className="button button-primary button-wide" disabled={busy}>{busy ? 'Saving…' : 'Update password'}</button></form></Modal>;
 }
 
 function Protected({ children }) {
